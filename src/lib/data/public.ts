@@ -1,5 +1,6 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
+import { connection } from "next/server";
 import { computeStandings, type StandingRow } from "@/lib/tournament/standings";
 import { collections } from "@/lib/db/mongo";
 import { SETTINGS_ID } from "@/lib/db/types";
@@ -22,6 +23,13 @@ export interface Snapshot {
  * no matter how many visitors are watching.
  */
 export async function getSnapshot(): Promise<Snapshot> {
+  // The database is only available at runtime. Keep the cached snapshot out of
+  // the static shell so deployments do not need database access during builds.
+  await connection();
+  return getCachedSnapshot();
+}
+
+async function getCachedSnapshot(): Promise<Snapshot> {
   "use cache";
   cacheLife("tournament");
   cacheTag(TAGS.settings, TAGS.teams, TAGS.groups, TAGS.matches);
