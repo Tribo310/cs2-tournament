@@ -242,6 +242,54 @@ export async function setManualWinner(
   }
 }
 
+const scheduleSchema = detailsSchema.pick({ scheduledAt: true, format: true, team1Id: true, team2Id: true });
+
+/**
+ * Row save from the schedule page: time and format for any match, teams too while
+ * the match hasn't started (only sent when the row shows team pickers).
+ */
+export async function updateSchedule(matchId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const _id = parseId(matchId);
+  if (!_id) return failure("Тоглолт олдсонгүй.");
+  const parsed = scheduleSchema.safeParse(formObject(formData));
+  if (!parsed.success) return fromZod(parsed.error);
+  const d = parsed.data;
+  const withTeams = formData.has("team1Id");
+
+  try {
+    const { matches, groups } = await collections();
+    const current = await matches.findOne({ _id });
+    if (!current) return failure("Тоглолт олдсонгүй.");
+
+    if (withTeams) {
+      if (current.status !== "scheduled") return failure("Эхэлсэн тоглолтын багийг солих боломжгүй.");
+      if (current.stage === "group" && current.groupId) {
+        const group = await groups.findOne({ _id: current.groupId });
+        for (const t of [d.team1Id, d.team2Id]) {
+          if (t && !group?.teams.some((g) => g.teamId.equals(t))) {
+            return failure(`Сонгосон баг "${group?.name ?? "энэ"}" группт байхгүй байна.`);
+          }
+        }
+      }
+    }
+
+    await writeMatch(
+      _id,
+      {
+        scheduledAt: d.scheduledAt,
+        format: d.format,
+        ...(withTeams ? { team1Id: d.team1Id, team2Id: d.team2Id } : {}),
+      },
+      { expectedUpdatedAt: current.updatedAt },
+    );
+    invalidate(TAGS.matches);
+    return success("Хуваарь хадгалагдлаа.");
+  } catch (err) {
+    return handleError(err);
+  }
+}
+
 export async function deleteMatch(matchId: string): Promise<ActionState> {
   await requireAdmin();
   const _id = parseId(matchId);

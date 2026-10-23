@@ -2,6 +2,7 @@
 
 import {
   CalendarClockIcon,
+  CalendarDaysIcon,
   GaugeIcon,
   LayersIcon,
   MenuIcon,
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 const items: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/admin", label: "Хянах самбар", icon: GaugeIcon },
   { href: "/admin/matches", label: "Тоглолтууд", icon: CalendarClockIcon },
+  { href: "/admin/schedule", label: "Хуваарь", icon: CalendarDaysIcon },
   { href: "/admin/teams", label: "Багууд", icon: ShieldIcon },
   { href: "/admin/groups", label: "Группүүд", icon: LayersIcon },
   { href: "/admin/bracket", label: "Плей-офф", icon: TrophyIcon },
