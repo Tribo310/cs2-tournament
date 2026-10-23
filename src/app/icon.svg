@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Same badge as the site header: orange square, cut top-right corner, "CS2" -->
+  <path d="M4 0H21L32 11V28Q32 32 28 32H4Q0 32 0 28V4Q0 0 4 0Z" fill="#ff8a1f"/>
+  <text x="15.5" y="20.5" text-anchor="middle" font-family="'Exo 2','Arial Black',Arial,sans-serif" font-size="12" font-weight="800" letter-spacing="-0.4" fill="#0a0d12">CS2</text>
+</svg>
