@@ -4,24 +4,38 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { PageHeader, PageSkeleton, Section } from "@/components/admin/page-header";
 import { BracketSection } from "@/components/tournament/bracket";
+import { StandingsTable } from "@/components/tournament/standings-table";
 import { requireAdmin } from "@/lib/auth/session";
 import type { Match } from "@/lib/data/dto";
-import { getGroupStandings, getSettings, listGroups, listMatches, listTeams } from "@/lib/data/queries";
-import { seedOrder, seedsFromStandings } from "@/lib/tournament/bracket-plan";
+import {
+  getFinalStandings,
+  getGroupStandings,
+  getSettings,
+  getStageStandings,
+  listGroups,
+  listMatches,
+  listTeams,
+} from "@/lib/data/queries";
+import { BRACKET_TYPE_LABELS } from "@/lib/labels";
+import { suggestFirstRound } from "@/lib/tournament/bracket-plan";
 import { matchContext, ROUND_NAMES } from "@/lib/tournament/context";
 import { BracketControls, type SeedOption } from "./bracket-controls";
+import { CustomBuilder } from "./custom-builder";
 
 export const metadata: Metadata = { title: "Плей-офф" };
 
 async function Content() {
   await requireAdmin();
-  const [settings, teams, groups, matches, standings] = await Promise.all([
+  const [settings, teams, groups, matches, standings, finalStandings, stageStandings] = await Promise.all([
     getSettings(),
     listTeams(),
     listGroups(),
     listMatches(),
     getGroupStandings(),
+    getFinalStandings(),
+    getStageStandings(),
   ]);
+  const roundRobinFinal = settings.bracketType === "knockout_rr";
 
   const teamMap = Object.fromEntries(teams.map((t) => [t.id, t]));
   const groupMatches = matches.filter((m) => m.stage === "group");
@@ -29,19 +43,45 @@ async function Content() {
   const playoff = matches.filter((m) => m.stage === "playoff");
   const started = playoff.some((m) => m.status !== "scheduled");
 
-  // Optional suggestion (filled only when the admin asks): standard seeding from group standings
+  // Optional suggestion (filled only when the admin asks), based on group standings
   const ordered = groups.map((g) => (standings[g.id] ?? []).map((r) => r.teamId));
-  const seeds = seedsFromStandings(ordered, settings.teamsAdvancePerGroup).slice(0, settings.bracketSize);
-  const order = seedOrder(settings.bracketSize);
-  const suggestion = Array.from({ length: settings.bracketSize / 2 }, (_, p) => [
-    seeds[order[p * 2] - 1] ?? "",
-    seeds[order[p * 2 + 1] - 1] ?? "",
-  ] as [string, string]);
+  const suggestion = suggestFirstRound(ordered, settings.teamsAdvancePerGroup, settings.bracketSize);
   const placeOf = new Map<string, string>();
   groups.forEach((g, gi) =>
     ordered[gi].forEach((teamId, place) => placeOf.set(teamId, `${g.name.replace(/^Групп\s*/, "")}${place + 1}`)),
   );
   const qualified = groups.length * settings.teamsAdvancePerGroup;
+  const custom = settings.bracketType === "custom";
+
+  const summary = (
+    <Section title="Тохиргоо">
+      <p className="text-sm">
+        {BRACKET_TYPE_LABELS[settings.bracketType]}
+        {!custom && ` · ${settings.bracketSize} баг`} · групп бүрээс {settings.teamsAdvancePerGroup} баг шалгарна.{" "}
+        <Link href="/admin/settings" className="text-primary underline-offset-4 hover:underline">
+          Өөрчлөх
+        </Link>
+      </p>
+      {!custom && qualified !== settings.bracketSize && groups.length > 0 && (
+        <Warning>
+          Группээс шалгарах багийн тоо ({groups.length}×{settings.teamsAdvancePerGroup} = {qualified}) плей-оффын хэмжээтэй (
+          {settings.bracketSize}) таарахгүй байна. Үлдсэн байрыг гараар сонгоно уу.
+        </Warning>
+      )}
+      {unfinished > 0 && (
+        <Warning>Группийн {unfinished} тоглолт дуусаагүй байна — байр өөрчлөгдөж болзошгүй.</Warning>
+      )}
+    </Section>
+  );
+
+  if (custom) {
+    return (
+      <div className="space-y-4">
+        {summary}
+        <CustomBuilder settings={settings} teams={teams} playoff={playoff} places={placeOf} stageStandings={stageStandings} />
+      </div>
+    );
+  }
 
   const options: SeedOption[] = teams.map((t) => ({ id: t.id, label: `${t.name} (${t.tag})`, place: placeOf.get(t.id) }));
   // The form starts from the current first round (or empty): the admin chooses every matchup
@@ -56,7 +96,12 @@ async function Content() {
   const final = playoff.filter((m) => m.bracket === "final");
   const lastUpper = Math.max(0, ...upper.map((m) => m.round ?? 1));
   const title = (m: Match) => matchContext({ settings, groups, matches }, m);
-  const sections = [
+  const sections = roundRobinFinal
+    ? [
+        { name: "Шигшээ тойрог", list: upper, label: () => "Шигшээ тойрог" },
+        { name: "Финалын тойрог", list: final, label: () => "Финалын тойрог" },
+      ].filter((s) => s.list.length)
+    : [
     {
       name: settings.bracketType === "double" ? "Дээд шат" : "Шат",
       list: upper,
@@ -71,24 +116,7 @@ async function Content() {
 
   return (
     <div className="space-y-4">
-      <Section title="Тохиргоо">
-        <p className="text-sm">
-          {settings.bracketType === "double" ? "Хоёр хасагдалттай" : "Нэг хасагдалттай"} · {settings.bracketSize} баг ·
-          групп бүрээс {settings.teamsAdvancePerGroup} баг шалгарна.{" "}
-          <Link href="/admin/settings" className="text-primary underline-offset-4 hover:underline">
-            Өөрчлөх
-          </Link>
-        </p>
-        {qualified !== settings.bracketSize && groups.length > 0 && (
-          <Warning>
-            Группээс шалгарах багийн тоо ({groups.length}×{settings.teamsAdvancePerGroup} = {qualified}) плей-оффын хэмжээтэй (
-            {settings.bracketSize}) таарахгүй байна. Үлдсэн байрыг гараар сонгоно уу.
-          </Warning>
-        )}
-        {unfinished > 0 && (
-          <Warning>Группийн {unfinished} тоглолт дуусаагүй байна — байр өөрчлөгдөж болзошгүй.</Warning>
-        )}
-      </Section>
+      {summary}
 
       <BracketControls
         options={options}
@@ -96,10 +124,15 @@ async function Content() {
         suggestion={suggestion}
         hasBracket={playoff.length > 0}
         started={started}
+        finalFormatLabel={roundRobinFinal ? "Финалын тойргийн формат" : "Финалын формат"}
+        finalFormatDefault={roundRobinFinal ? "bo3" : "bo5"}
       />
 
       {sections.map((s) => (
         <Section key={s.name} title={s.name}>
+          {roundRobinFinal && s.list === final && finalStandings.length > 0 && (
+            <StandingsTable rows={finalStandings} teams={teamMap} qualify={1} caption="Финалын тойргийн байр" />
+          )}
           <BracketSection matches={s.list} teams={teamMap} matchTitle={title} roundLabel={s.label} hrefBase="/admin/matches/" />
         </Section>
       ))}
@@ -121,7 +154,7 @@ export default function BracketAdminPage() {
     <>
       <PageHeader
         title="Плей-офф"
-        description="1-р тойргийн тоглолт бүрийн хоёр багийг админ сонгоно. Тоглолт дуусахад ялагч (хоёр хасагдалттай үед ялагдагч ч бас) дараагийн тоглолт руу автоматаар шилжинэ."
+        description="Плей-оффын бүтцийг админ тодорхойлно. Тоглолт дуусахад ялагч (холбосон бол ялагдагч ч бас) дараагийн тоглолтод автоматаар шилжинэ."
       />
       <Suspense fallback={<PageSkeleton />}>
         <Content />

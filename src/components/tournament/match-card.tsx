@@ -11,11 +11,13 @@ import { TeamLogo } from "./team-logo";
 
 function TeamRow({
   team,
+  placeholder,
   score,
   state,
   showScore,
 }: {
   team?: Team;
+  placeholder?: string;
   score: number;
   state: "won" | "lost" | "neutral";
   showScore: boolean;
@@ -30,7 +32,7 @@ function TeamRow({
     >
       <TeamLogo team={team} size={28} />
       <span className={cn("min-w-0 flex-1 truncate font-medium", !team && "text-muted-foreground italic")}>
-        {team?.name ?? "Тодорхойгүй"}
+        {team?.name ?? placeholder ?? "Тодорхойгүй"}
       </span>
       {state === "won" && <span className="sr-only">(ялсан)</span>}
       <span
@@ -51,12 +53,14 @@ export function MatchCard({
   team1,
   team2,
   context,
+  placeholders,
   className,
 }: {
   match: Match;
   team1?: Team;
   team2?: Team;
   context: string;
+  placeholders?: [string | undefined, string | undefined]; // e.g. "M2 ялагч" while a slot is unknown
   className?: string;
 }) {
   const match = useLiveMatch(initial);
@@ -93,8 +97,8 @@ export function MatchCard({
         </span>
       </div>
       <div className="py-1">
-        <TeamRow team={team1} score={match.team1Score} state={state(match.team1Id)} showScore={showScore} />
-        <TeamRow team={team2} score={match.team2Score} state={state(match.team2Id)} showScore={showScore} />
+        <TeamRow team={team1} placeholder={placeholders?.[0]} score={match.team1Score} state={state(match.team1Id)} showScore={showScore} />
+        <TeamRow team={team2} placeholder={placeholders?.[1]} score={match.team2Score} state={state(match.team2Id)} showScore={showScore} />
       </div>
     </Link>
   );

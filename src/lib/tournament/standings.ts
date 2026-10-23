@@ -16,7 +16,32 @@ export interface StandingRow {
   tiebreakRank?: number;
 }
 
-type StandingMatch = Pick<MatchDoc, "status" | "team1Id" | "team2Id" | "winnerId" | "maps">;
+export type StandingMatch = Pick<MatchDoc, "status" | "team1Id" | "team2Id" | "winnerId" | "maps">;
+
+/** Standings for a round-robin final: the participants are whoever is in its matches. */
+export function roundRobinStandings(
+  matches: StandingMatch[],
+  settings: Pick<SettingsDoc, "pointsWin" | "pointsLoss">,
+): StandingRow[] {
+  const seen = new Map<string, NonNullable<StandingMatch["team1Id"]>>();
+  for (const m of matches) {
+    for (const t of [m.team1Id, m.team2Id]) if (t && !seen.has(t.toHexString())) seen.set(t.toHexString(), t);
+  }
+  return computeStandings({ teams: [...seen.values()].map((teamId) => ({ teamId })) }, matches, settings);
+}
+
+/** Tables for the round-robin stages of a custom playoff. */
+export function customStageStandings(
+  settings: Pick<SettingsDoc, "bracketType" | "playoffStages" | "pointsWin" | "pointsLoss">,
+  matchDocs: (StandingMatch & Pick<MatchDoc, "stage" | "stageKey">)[],
+): Record<string, StandingRow[]> {
+  if (settings.bracketType !== "custom") return {};
+  return Object.fromEntries(
+    (settings.playoffStages ?? [])
+      .filter((st) => st.kind === "round_robin")
+      .map((st) => [st.key, roundRobinStandings(matchDocs.filter((m) => m.stage === "playoff" && m.stageKey === st.key), settings)]),
+  );
+}
 
 /**
  * Group standings from finished matches.

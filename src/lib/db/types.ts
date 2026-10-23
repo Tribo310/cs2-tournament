@@ -12,14 +12,27 @@ export type MatchStatus = (typeof MATCH_STATUSES)[number];
 export const MAP_STATUSES = ["upcoming", "live", "finished"] as const;
 export type MapStatus = (typeof MAP_STATUSES)[number];
 
-export const BRACKET_TYPES = ["single", "double"] as const;
+// knockout_rr: one knockout round, then the winners play a round robin for the title
+// custom: the admin builds the stages and wires every slot by hand
+export const BRACKET_TYPES = ["single", "double", "knockout_rr", "custom"] as const;
 export type BracketType = (typeof BRACKET_TYPES)[number];
 
-export const BRACKET_SIZES = [4, 8, 16] as const;
+export const BRACKET_SIZES = [4, 6, 8, 16] as const;
 export type BracketSize = (typeof BRACKET_SIZES)[number];
 
 export const BRACKET_SIDES = ["upper", "lower", "final"] as const;
 export type BracketSide = (typeof BRACKET_SIDES)[number];
+
+// Custom playoff stages: a knockout round (matches feed later slots) or a round robin (table)
+export const STAGE_KINDS = ["knockout", "round_robin"] as const;
+export type StageKind = (typeof STAGE_KINDS)[number];
+
+export interface PlayoffStage {
+  key: string; // stable id referenced by MatchDoc.stageKey
+  name: string;
+  kind: StageKind;
+  qualify?: number; // round robin: how many top rows to highlight
+}
 
 export const PLAYER_ROLES = ["player", "sub", "coach"] as const;
 export type PlayerRole = (typeof PLAYER_ROLES)[number];
@@ -58,6 +71,7 @@ export interface SettingsDoc {
   pointsWin: number;
   pointsLoss: number;
   defaultGroupFormat: MatchFormat;
+  playoffStages?: PlayoffStage[]; // custom bracket type, in display order
   updatedAt: Date;
 }
 
@@ -132,8 +146,10 @@ export interface MatchDoc {
   stage: "group" | "playoff";
   groupId?: ObjectId;
 
-  // Playoff position: bracket side, round (1 = first) and slot within the round
+  // Playoff position: bracket side, round (1 = first) and slot within the round.
+  // Custom playoffs use stageKey + position instead of bracket/round.
   bracket?: BracketSide;
+  stageKey?: string;
   round?: number;
   position?: number;
   label?: string;
@@ -155,7 +171,10 @@ export interface MatchDoc {
 
   // Bracket wiring: where the winner / loser goes next
   next?: BracketLink;
+  // Further winner destinations (a round-robin final puts each winner in several matches)
+  nextExtra?: BracketLink[];
   loserNext?: BracketLink;
+  loserNextExtra?: BracketLink[];
 
   streamUrl?: string;
   notes?: string;

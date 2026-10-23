@@ -6,6 +6,7 @@ import { collections } from "@/lib/db/mongo";
 import { BRACKET_TYPES, MATCH_FORMATS, SETTINGS_ID } from "@/lib/db/types";
 import { TAGS } from "@/lib/data/tags";
 import { parseLocalDate } from "@/lib/time";
+import { isValidBracket } from "@/lib/tournament/bracket-plan";
 import {
   failure,
   formObject,
@@ -31,11 +32,15 @@ const settingsSchema = z
     startsOn: localDate,
     endsOn: localDate,
     bracketType: z.enum(BRACKET_TYPES),
-    bracketSize: z.coerce.number().pipe(z.union([z.literal(4), z.literal(8), z.literal(16)])),
+    bracketSize: z.coerce.number().pipe(z.union([z.literal(4), z.literal(6), z.literal(8), z.literal(16)])),
     teamsAdvancePerGroup: requiredInt("Шалгарах багийн тоо", 1, 8),
     pointsWin: requiredInt("Ялалтын оноо", 0, 10),
     pointsLoss: requiredInt("Ялагдлын оноо", 0, 10),
     defaultGroupFormat: z.enum(MATCH_FORMATS),
+  })
+  .refine((s) => isValidBracket(s.bracketType, s.bracketSize), {
+    path: ["bracketSize"],
+    message: "Энэ төрөлд 4, 8 эсвэл 16 баг (шигшээ + финалын тойрогт 4, 6 эсвэл 8 баг) сонгоно уу.",
   })
   .refine((s) => !s.startsOn || !s.endsOn || s.endsOn >= s.startsOn, {
     path: ["endsOn"],

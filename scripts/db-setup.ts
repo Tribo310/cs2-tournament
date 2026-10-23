@@ -16,6 +16,7 @@ import {
   MATCH_STATUSES,
   PLAYER_ROLES,
   SETTINGS_ID,
+  STAGE_KINDS,
   type SettingsDoc,
 } from "../src/lib/db/types";
 
@@ -42,6 +43,19 @@ const validators: Record<string, Document> = {
       pointsWin: intMin0,
       pointsLoss: intMin0,
       defaultGroupFormat: { enum: [...MATCH_FORMATS] },
+      playoffStages: {
+        bsonType: "array",
+        items: {
+          bsonType: "object",
+          required: ["key", "name", "kind"],
+          properties: {
+            key: { bsonType: "string", minLength: 1 },
+            name: { bsonType: "string", minLength: 1 },
+            kind: { enum: [...STAGE_KINDS] },
+            qualify: { bsonType: ["int", "long"], minimum: 0 },
+          },
+        },
+      },
       updatedAt: date,
     },
   },
@@ -119,6 +133,7 @@ const validators: Record<string, Document> = {
       stage: { enum: ["group", "playoff"] },
       groupId: oid,
       bracket: { enum: [...BRACKET_SIDES] },
+      stageKey: { bsonType: "string", minLength: 1 },
       round: { bsonType: ["int", "long"], minimum: 1 },
       position: { bsonType: ["int", "long"], minimum: 1 },
       label: str,
@@ -152,17 +167,33 @@ const validators: Record<string, Document> = {
         required: ["matchId", "slot"],
         properties: { matchId: oid, slot: { enum: [1, 2] } },
       },
+      nextExtra: {
+        bsonType: "array",
+        items: {
+          bsonType: "object",
+          required: ["matchId", "slot"],
+          properties: { matchId: oid, slot: { enum: [1, 2] } },
+        },
+      },
       loserNext: {
         bsonType: "object",
         required: ["matchId", "slot"],
         properties: { matchId: oid, slot: { enum: [1, 2] } },
+      },
+      loserNextExtra: {
+        bsonType: "array",
+        items: {
+          bsonType: "object",
+          required: ["matchId", "slot"],
+          properties: { matchId: oid, slot: { enum: [1, 2] } },
+        },
       },
       streamUrl: str,
       notes: str,
       createdAt: date,
       updatedAt: date,
     },
-    // Group matches need a group; playoff matches need a bracket position
+    // Group matches need a group; playoff matches need a bracket position or a custom stage
     anyOf: [
       {
         properties: { stage: { enum: ["group"] } },
@@ -172,6 +203,11 @@ const validators: Record<string, Document> = {
       {
         properties: { stage: { enum: ["playoff"] } },
         required: ["bracket", "round", "position"],
+      },
+      {
+        properties: { stage: { enum: ["playoff"] } },
+        required: ["stageKey", "position"],
+        not: { required: ["bracket"] },
       },
     ],
   },
@@ -215,9 +251,16 @@ async function main() {
   await db.collection("matches").createIndex({ stage: 1, groupId: 1 });
   await db.collection("matches").createIndex({ team1Id: 1 });
   await db.collection("matches").createIndex({ team2Id: 1 });
+  // Preset brackets only: custom-stage matches have no bracket position
+  const positionFilter = { stage: "playoff", bracket: { $exists: true } };
+  const matchIndexes = await db.collection("matches").indexes();
+  const position = matchIndexes.find((i) => i.name === "bracket_1_round_1_position_1");
+  if (position && JSON.stringify(position.partialFilterExpression) !== JSON.stringify(positionFilter)) {
+    await db.collection("matches").dropIndex(position.name!);
+  }
   await db.collection("matches").createIndex(
     { bracket: 1, round: 1, position: 1 },
-    { unique: true, partialFilterExpression: { stage: "playoff" } },
+    { unique: true, partialFilterExpression: positionFilter },
   );
   console.log("indexes  ok");
 

@@ -15,7 +15,14 @@ export interface PlannedMatch {
   seed1?: number; // first-round seeds (1-based)
   seed2?: number;
   next?: PlanLink;
+  nextExtra?: PlanLink[]; // more winner destinations (round-robin final)
   loserNext?: PlanLink;
+}
+
+/** Which sizes each playoff format supports. */
+export function isValidBracket(type: BracketType, size: number): size is BracketSize {
+  if (type === "custom") return true; // the admin builds every stage, size is not used
+  return type === "knockout_rr" ? [4, 6, 8].includes(size) : [4, 8, 16].includes(size);
 }
 
 /** Standard seeding order: [1, 8, 4, 5, 2, 7, 3, 6] for 8, so top seeds meet as late as possible. */
@@ -31,6 +38,7 @@ export function seedOrder(size: number): number[] {
 const key = (side: string, round: number, position: number) => `${side}${round}-${position}`;
 
 export function planBracket(type: BracketType, size: BracketSize): PlannedMatch[] {
+  if (type === "knockout_rr") return planKnockoutRoundRobin(size);
   const upperRounds = Math.log2(size);
   const plan = new Map<string, PlannedMatch>();
   const add = (m: PlannedMatch) => plan.set(m.key, m);
@@ -90,6 +98,57 @@ export function planBracket(type: BracketType, size: BracketSize): PlannedMatch[
   plan.get(key("U", upperRounds, 1))!.next = { key: "F1-1", slot: 1 };
 
   return [...plan.values()];
+}
+
+/**
+ * One knockout round (size/2 matches), then the winners play each other once.
+ * Each first-round winner feeds several final matches: the first via `next`, the rest via `nextExtra`.
+ */
+function planKnockoutRoundRobin(size: number): PlannedMatch[] {
+  const k = size / 2;
+  const firstRound: PlannedMatch[] = Array.from({ length: k }, (_, i) => ({
+    key: key("U", 1, i + 1),
+    bracket: "upper",
+    round: 1,
+    position: i + 1,
+  }));
+  const finals: PlannedMatch[] = [];
+  const links = firstRound.map(() => [] as PlanLink[]);
+  for (let i = 0; i < k; i++) {
+    for (let j = i + 1; j < k; j++) {
+      const f = key("F", 1, finals.length + 1);
+      finals.push({ key: f, bracket: "final", round: 1, position: finals.length + 1 });
+      links[i].push({ key: f, slot: 1 });
+      links[j].push({ key: f, slot: 2 });
+    }
+  }
+  firstRound.forEach((m, i) => {
+    m.next = links[i][0];
+    if (links[i].length > 1) m.nextExtra = links[i].slice(1);
+  });
+  return [...firstRound, ...finals];
+}
+
+/**
+ * Suggested first-round pairs from group standings (the admin can change them):
+ * - 2 qualifiers per group and one match per group → each winner meets the next group's
+ *   runner-up (A1–B2, B1–C2, C1–A2; with two groups A1–B2, B1–A2)
+ * - power-of-two sizes → standard seeding (1–8, 4–5, …) from group winners, then runners-up
+ * - otherwise → best remaining seed vs worst remaining seed
+ */
+export function suggestFirstRound(standingsByGroup: string[][], perGroup: number, size: number): [string, string][] {
+  const matches = size / 2;
+  const groups = standingsByGroup.length;
+  if (perGroup === 2 && groups === matches && groups >= 2) {
+    return standingsByGroup.map((g, i) => [g[0] ?? "", standingsByGroup[(i + 1) % groups][1] ?? ""]);
+  }
+  const seeds = seedsFromStandings(standingsByGroup, perGroup);
+  const seed = (n: number) => seeds[n - 1] ?? "";
+  if (Number.isInteger(Math.log2(size))) {
+    const order = seedOrder(size);
+    return Array.from({ length: matches }, (_, p) => [seed(order[p * 2]), seed(order[p * 2 + 1])]);
+  }
+  return Array.from({ length: matches }, (_, p) => [seed(p + 1), seed(size - p)]);
 }
 
 /**

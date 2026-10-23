@@ -2,7 +2,7 @@ import "server-only";
 import { ObjectId, type Filter } from "mongodb";
 import { collections } from "@/lib/db/mongo";
 import { SETTINGS_ID, type MatchDoc } from "@/lib/db/types";
-import { computeStandings, type StandingRow } from "@/lib/tournament/standings";
+import { computeStandings, customStageStandings, roundRobinStandings, type StandingRow } from "@/lib/tournament/standings";
 import { toGroup, toMatch, toSettings, toTeam } from "./dto";
 
 // Uncached reads. Admin pages use these directly (always fresh);
@@ -99,4 +99,24 @@ export async function getGroupStandings(): Promise<Record<string, StandingRow[]>
       computeStandings(g, matchDocs.filter((m) => m.groupId?.equals(g._id)), points),
     ]),
   );
+}
+
+/** Fresh tables of the custom playoff's round-robin stages, by stage key. */
+export async function getStageStandings(): Promise<Record<string, StandingRow[]>> {
+  const { matches, settings } = await collections();
+  const [docs, settingsDoc] = await Promise.all([
+    matches.find({ stage: "playoff", stageKey: { $exists: true } }).toArray(),
+    settings.findOne({ _id: SETTINGS_ID }),
+  ]);
+  return settingsDoc ? customStageStandings(settingsDoc, docs) : {};
+}
+
+/** Fresh standings of the round-robin final (knockout_rr format). */
+export async function getFinalStandings(): Promise<StandingRow[]> {
+  const { matches, settings } = await collections();
+  const [finals, settingsDoc] = await Promise.all([
+    matches.find({ stage: "playoff", bracket: "final" }).toArray(),
+    settings.findOne({ _id: SETTINGS_ID }),
+  ]);
+  return roundRobinStandings(finals, settingsDoc ?? { pointsWin: 1, pointsLoss: 0 });
 }

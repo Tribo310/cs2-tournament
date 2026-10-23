@@ -22,12 +22,16 @@ export function BracketControls({
   suggestion,
   hasBracket,
   started,
+  finalFormatLabel = "Финалын формат",
+  finalFormatDefault = "bo5",
 }: {
   options: SeedOption[];
   current: Pair[];
   suggestion: Pair[];
   hasBracket: boolean;
   started: boolean;
+  finalFormatLabel?: string;
+  finalFormatDefault?: "bo1" | "bo3" | "bo5";
 }) {
   const { onSubmit, pending, err } = useFormAction(generateBracket);
   const [pairs, setPairs] = useState<Pair[]>(current);
@@ -149,8 +153,8 @@ export function BracketControls({
                 <option value="bo5">BO5</option>
               </NativeSelect>
             </Field>
-            <Field label="Финалын формат" htmlFor="finalFormat">
-              <NativeSelect id="finalFormat" name="finalFormat" defaultValue="bo5">
+            <Field label={finalFormatLabel} htmlFor="finalFormat">
+              <NativeSelect id="finalFormat" name="finalFormat" defaultValue={finalFormatDefault}>
                 <option value="bo1">BO1</option>
                 <option value="bo3">BO3</option>
                 <option value="bo5">BO5</option>

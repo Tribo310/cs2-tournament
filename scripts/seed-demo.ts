@@ -1,16 +1,18 @@
 /**
- * Fills the database with a realistic demo tournament (8 teams, 2 groups, 4-team playoff).
- * Admins and settings are kept; only empty settings fields (name, dates) are filled.
+ * Fills the database with a realistic demo tournament: 9 teams in 3 groups, the top 2 of
+ * each group play a knockout round and the 3 winners play a round-robin final.
+ * Admins are kept. Settings: the playoff format is set to match the demo; name, description
+ * and dates are only filled when still empty/default.
  *
- *   pnpm db:seed-demo           # refuses if teams or matches already exist
- *   pnpm db:seed-demo --reset   # wipe teams, logos, groups and matches first
- *   pnpm db:clear               # wipe teams, logos, groups and matches only
+ *   pnpm db:seed-demo           # refuses if demo teams or a playoff already exist
+ *   pnpm db:seed-demo --reset   # remove previous demo data first (your own teams are kept)
+ *   pnpm db:clear               # wipe ALL teams, logos, groups and matches (before the real event)
  */
 import { deflateSync } from "node:zlib";
 import { Binary, ObjectId } from "mongodb";
 import { closeDb, collections } from "../src/lib/db/mongo";
 import { SETTINGS_ID, type GroupDoc, type MatchDoc, type MatchMap, type TeamDoc } from "../src/lib/db/types";
-import { planBracket } from "../src/lib/tournament/bracket-plan";
+import { planBracket, suggestFirstRound } from "../src/lib/tournament/bracket-plan";
 import { deriveMatchResult } from "../src/lib/tournament/match";
 import { computeStandings } from "../src/lib/tournament/standings";
 
@@ -25,41 +27,55 @@ const TEAMS = [
   { name: "Orkhon Riders", tag: "ORK", city: "Хархорин", colors: ["#064e3b", "#3ddc84"], shape: "circle" },
   { name: "Tuul Tigers", tag: "TUUL", city: "Улаанбаатар", colors: ["#f97316", "#111827"], shape: "stripes" },
   { name: "Darkhan Dragons", tag: "DRK", city: "Дархан", colors: ["#111827", "#e11d48"], shape: "chevron" },
+  { name: "Selenge Sharks", tag: "SEL", city: "Сүхбаатар", colors: ["#0c4a6e", "#e8b341"], shape: "diamond" },
 ] as const;
+
+// Teams per group, in TEAMS order: A = STP GOBI ALT, B = KHG UB5 ORK, C = TUUL DRK SEL
+const GROUP_SIZE = 3;
+const GROUP_NAMES = ["Групп A", "Групп B", "Групп C"];
 
 const NICKS = [
   "Temka", "Bataa", "zorigoo", "Khuslen", "Nomio", "Ganzo", "Tulga", "erdene", "Saruul", "Munkh",
   "Bilguun", "Anar", "Dulguun", "Enkhee", "Gerelt", "itgel", "Javkhaa", "Khatan", "Lkhagva", "Mandakh",
   "Naraa", "Orgil", "Purev", "Sukh", "Temuulen", "Uuganaa", "Usukh", "Zolboo", "Altan", "Bayar",
   "Chinzo", "Delger", "Enkhjin", "Gantulga", "Khongor", "Jargal", "Nyam", "Otgon", "Sodoo", "Tsogt",
+  "Erkhes", "Mergen", "Tengis", "Uyanga", "Zayaa",
 ];
-const SUBS = ["Ariun", "Boldoo", "Nasaa", "Tergel"];
-const COACHES = ["coach Ganbold", "coach Erka", "coach Tuvshin", "coach Bayaraa", "coach Sukhee", "coach Oyuka", "coach Battulga", "coach Zaya"];
+const SUBS = ["Ariun", "Boldoo", "Nasaa", "Tergel", "Bilegt"];
+const COACHES = [
+  "coach Ganbold", "coach Erka", "coach Tuvshin", "coach Bayaraa", "coach Sukhee",
+  "coach Oyuka", "coach Battulga", "coach Zaya", "coach Sergelen",
+];
 const GIVEN = [
   "Тэмүүжин", "Батбаяр", "Зоригт", "Хүслэн", "Номин", "Ганзориг", "Тулга", "Эрдэнэ", "Саруул", "Мөнх",
   "Билгүүн", "Анар", "Дөлгөөн", "Энхжаргал", "Гэрэлт", "Итгэл", "Жавхлан", "Хатанбаатар", "Лхагва", "Мандах",
   "Наран", "Оргил", "Пүрэв", "Сүх", "Тэмүүлэн", "Ууганбаяр", "Өсөх", "Золбоо", "Алтан", "Баяр",
   "Чинзориг", "Дэлгэр", "Энхжин", "Гантулга", "Хонгор", "Жаргал", "Ням", "Отгон", "Содбаяр", "Цогт",
+  "Эрхэс", "Мэргэн", "Тэнгис", "Уянга", "Заяа",
 ];
 const INITIALS = "БГДЭЖЗМНОСТЦ";
 
-// Group results: [team1, team2, maps as [map, team1 rounds, team2 rounds, picked by 1|2|0]]
+// Group results (3 teams each: 0v1, 0v2, 1v2): [team1, team2, maps as [map, team1 rounds, team2 rounds, picked by 1|2|0]]
 type Result = [number, number, [string, number, number, 0 | 1 | 2][]];
-const GROUP_A: Result[] = [
-  [0, 1, [["Mirage", 13, 10, 1], ["Nuke", 9, 13, 2], ["Inferno", 16, 14, 0]]],
-  [2, 3, [["Ancient", 13, 7, 1], ["Anubis", 13, 11, 2]]],
-  [0, 2, [["Dust2", 13, 4, 1], ["Mirage", 13, 9, 2]]],
-  [1, 3, [["Nuke", 13, 8, 1], ["Train", 13, 10, 2]]],
-  [0, 3, [["Inferno", 13, 6, 1], ["Ancient", 13, 11, 2]]],
-  [1, 2, [["Anubis", 11, 13, 1], ["Mirage", 13, 5, 2], ["Dust2", 19, 17, 0]]],
-];
-const GROUP_B: Result[] = [
-  [0, 1, [["Mirage", 13, 11, 1], ["Inferno", 8, 13, 2], ["Nuke", 10, 13, 0]]],
-  [2, 3, [["Ancient", 7, 13, 1], ["Train", 9, 13, 2]]],
-  [0, 2, [["Dust2", 13, 3, 1], ["Anubis", 13, 8, 2]]],
-  [1, 3, [["Nuke", 13, 9, 1], ["Mirage", 12, 16, 2], ["Inferno", 13, 10, 0]]],
-  [0, 3, [["Mirage", 13, 6, 1], ["Ancient", 13, 10, 2]]],
-  [1, 2, [["Anubis", 11, 13, 1], ["Train", 7, 13, 2]]],
+const GROUP_RESULTS: Result[][] = [
+  // A: STP 2-0, GOBI 1-1, ALT 0-2
+  [
+    [0, 1, [["Mirage", 13, 10, 1], ["Nuke", 9, 13, 2], ["Inferno", 16, 14, 0]]],
+    [0, 2, [["Dust2", 13, 4, 1], ["Mirage", 13, 9, 2]]],
+    [1, 2, [["Anubis", 11, 13, 1], ["Mirage", 13, 5, 2], ["Dust2", 19, 17, 0]]],
+  ],
+  // B: ORK 2-0, UB5 1-1, KHG 0-2
+  [
+    [0, 1, [["Ancient", 7, 13, 1], ["Train", 9, 13, 2]]],
+    [0, 2, [["Nuke", 13, 9, 1], ["Mirage", 12, 16, 2], ["Inferno", 10, 13, 0]]],
+    [1, 2, [["Anubis", 11, 13, 1], ["Train", 7, 13, 2]]],
+  ],
+  // C: DRK 2-0, SEL 1-1, TUUL 0-2
+  [
+    [0, 1, [["Mirage", 13, 11, 1], ["Inferno", 8, 13, 2], ["Nuke", 10, 13, 0]]],
+    [0, 2, [["Dust2", 3, 13, 1], ["Anubis", 8, 13, 2]]],
+    [1, 2, [["Ancient", 13, 6, 1], ["Train", 13, 10, 2]]],
+  ],
 ];
 
 // --- Helpers ---------------------------------------------------------------------------
@@ -154,23 +170,49 @@ async function clear() {
   console.log(`cleared: ${t.deletedCount} teams, ${l.deletedCount} logos, ${g.deletedCount} groups, ${m.deletedCount} matches`);
 }
 
+const DEMO_TAGS = TEAMS.map((t) => t.tag as string);
+
+/** Removes demo teams (by tag), demo groups, their matches and any playoff; keeps everything else. */
+async function resetDemo() {
+  const { teams, logos, groups, matches } = await collections();
+  const demoTeams = await teams.find({ tag: { $in: DEMO_TAGS } }, { projection: { logoId: 1 } }).toArray();
+  const teamIds = demoTeams.map((t) => t._id);
+  const demoGroups = await groups.find({ name: { $in: GROUP_NAMES } }, { projection: { _id: 1 } }).toArray();
+  const groupIds = demoGroups.map((g) => g._id);
+  const m = await matches.deleteMany({
+    $or: [
+      { stage: "playoff" },
+      { groupId: { $in: groupIds } },
+      { team1Id: { $in: teamIds } },
+      { team2Id: { $in: teamIds } },
+    ],
+  });
+  const l = await logos.deleteMany({ _id: { $in: demoTeams.flatMap((t) => (t.logoId ? [t.logoId] : [])) } });
+  const g = await groups.deleteMany({ _id: { $in: groupIds } });
+  const t = await teams.deleteMany({ _id: { $in: teamIds } });
+  console.log(`removed demo data: ${t.deletedCount} teams, ${l.deletedCount} logos, ${g.deletedCount} groups, ${m.deletedCount} matches`);
+}
+
 async function seed() {
   const c = await collections();
-  if ((await c.teams.countDocuments()) || (await c.matches.countDocuments())) {
-    console.error("The database already has teams or matches. Run `pnpm db:seed-demo --reset` to replace them.");
+  if ((await c.teams.countDocuments({ tag: { $in: DEMO_TAGS } })) || (await c.matches.countDocuments({ stage: "playoff" }))) {
+    console.error("Demo teams or a playoff already exist. Run `pnpm db:seed-demo --reset` to replace the demo data.");
     process.exitCode = 1;
     return;
   }
   const settings = await c.settings.findOne({ _id: SETTINGS_ID });
   if (!settings) throw new Error("Settings document missing — run `pnpm db:setup` first");
 
-  // Only fill settings that are still at their defaults
+  // Playoff format must match the demo; text fields are only filled while still default
   await c.settings.updateOne(
     { _id: SETTINGS_ID },
     {
       $set: {
+        bracketType: "knockout_rr",
+        bracketSize: 6,
+        teamsAdvancePerGroup: 2,
         ...(settings.name === "CS2 Тэмцээн" ? { name: "Монгол CS2 Лиг 2026" } : {}),
-        ...(settings.description ? {} : { description: "Улаанбаатар хотын нээлттэй CS2 тэмцээн · 8 баг · 2 групп · плей-офф" }),
+        ...(settings.description ? {} : { description: "Улаанбаатар хотын нээлттэй CS2 тэмцээн · 9 баг · 3 групп · шигшээ + финалын тойрог" }),
         ...(settings.startsOn ? {} : { startsOn: ubTime(-2, 0), endsOn: ubTime(1, 0) }),
         updatedAt: new Date(),
       },
@@ -214,8 +256,8 @@ async function seed() {
 
   // Groups: reuse an existing empty group with the same name instead of failing on it
   const groupDocs: GroupDoc[] = [];
-  for (const [gi, name] of ["Групп A", "Групп B"].entries()) {
-    const teams = teamDocs.slice(gi * 4, gi * 4 + 4).map((t) => ({ teamId: t._id }));
+  for (const [gi, name] of GROUP_NAMES.entries()) {
+    const teams = teamDocs.slice(gi * GROUP_SIZE, (gi + 1) * GROUP_SIZE).map((t) => ({ teamId: t._id }));
     const doc = await c.groups.findOneAndUpdate(
       { name },
       { $set: { teams, sortOrder: gi }, $setOnInsert: { name, createdAt: now } },
@@ -239,11 +281,11 @@ async function seed() {
       status: "finished",
       pickedBy: pick === 1 ? team1 : pick === 2 ? team2 : undefined,
     }));
-  [GROUP_A, GROUP_B].forEach((results, gi) => {
+  GROUP_RESULTS.forEach((results, gi) => {
     const group = groupDocs[gi];
     const ids = group.teams.map((t) => t.teamId);
     results.forEach(([a, b, maps], i) => {
-      const at = ubTime(i < 3 ? -2 : -1, 12 + (i % 3) * 3 + gi);
+      const at = ubTime(i < 2 ? -2 : -1, 12 + gi * 3 + (i === 1 ? 1 : 0));
       matchDocs.push(
         finished(
           {
@@ -263,21 +305,18 @@ async function seed() {
     });
   });
 
-  // Playoff: A1 vs B2 and B1 vs A2 from the real standings, single elimination
+  // Playoff: knockout round paired like the admin's suggestion (A1–B2, B1–C2, C1–A2),
+  // then the 3 winners play each other once
   const points = { pointsWin: settings.pointsWin, pointsLoss: settings.pointsLoss };
-  const [standA, standB] = groupDocs.map((g) =>
-    computeStandings(g, matchDocs.filter((m) => m.groupId?.equals(g._id)), points).map((r) => new ObjectId(r.teamId)),
+  const ordered = groupDocs.map((g) =>
+    computeStandings(g, matchDocs.filter((m) => m.groupId?.equals(g._id)), points).map((r) => r.teamId),
   );
-  const pairs: [ObjectId, ObjectId][] = [
-    [standA[0], standB[1]],
-    [standB[0], standA[1]],
-  ];
-  const plan = planBracket("single", 4);
+  const pairs = suggestFirstRound(ordered, 2, 6).map(([a, b]) => [new ObjectId(a), new ObjectId(b)] as const);
+  const plan = planBracket("knockout_rr", 6);
   const ids = new Map(plan.map((m) => [m.key, new ObjectId()]));
-  const semi1Start = roundTo(new Date(Date.now() - 50 * 60_000), 15);
-  for (const p of plan) {
-    const isFinal = p.round === 2;
-    const pair = p.round === 1 ? pairs[p.position - 1] : undefined;
+  const liveStart = roundTo(new Date(Date.now() - 50 * 60_000), 15);
+  const playoffDocs: MatchDoc[] = plan.map((p) => {
+    const pair = p.bracket === "upper" ? pairs[p.position - 1] : undefined;
     const base = {
       _id: ids.get(p.key)!,
       stage: "playoff" as const,
@@ -286,8 +325,9 @@ async function seed() {
       position: p.position,
       team1Id: pair?.[0],
       team2Id: pair?.[1],
-      format: isFinal ? ("bo5" as const) : ("bo3" as const),
+      format: "bo3" as const,
       next: p.next ? { matchId: ids.get(p.next.key)!, slot: p.next.slot } : undefined,
+      nextExtra: p.nextExtra?.map((l) => ({ matchId: ids.get(l.key)!, slot: l.slot })),
       team1Score: 0,
       team2Score: 0,
       winnerManual: false,
@@ -295,29 +335,57 @@ async function seed() {
       updatedAt: now,
     };
     let doc: MatchDoc;
-    if (p.round === 1 && p.position === 1) {
+    if (p.bracket === "upper" && p.position === 1) {
+      // Played earlier today
+      const at = new Date(liveStart.getTime() - 3 * HOUR);
+      doc = {
+        ...base,
+        status: "finished",
+        scheduledAt: at,
+        updatedAt: new Date(at.getTime() + 2 * HOUR),
+        maps: [
+          { order: 1, mapName: "Mirage", team1Rounds: 13, team2Rounds: 8, status: "finished", pickedBy: pair![0] },
+          { order: 2, mapName: "Nuke", team1Rounds: 11, team2Rounds: 13, status: "finished", pickedBy: pair![1] },
+          { order: 3, mapName: "Inferno", team1Rounds: 13, team2Rounds: 10, status: "finished" },
+        ],
+      };
+    } else if (p.bracket === "upper" && p.position === 2) {
       // Live right now: first map done, second in progress
       doc = {
         ...base,
         status: "live",
-        scheduledAt: semi1Start,
+        scheduledAt: liveStart,
         streamUrl: "https://www.twitch.tv/",
         maps: [
-          { order: 1, mapName: "Mirage", team1Rounds: 13, team2Rounds: 9, status: "finished", pickedBy: pair![0] },
-          { order: 2, mapName: "Nuke", team1Rounds: 7, team2Rounds: 9, status: "live", pickedBy: pair![1] },
-          { order: 3, mapName: "Ancient", team1Rounds: 0, team2Rounds: 0, status: "upcoming" },
+          { order: 1, mapName: "Ancient", team1Rounds: 13, team2Rounds: 9, status: "finished", pickedBy: pair![0] },
+          { order: 2, mapName: "Anubis", team1Rounds: 7, team2Rounds: 9, status: "live", pickedBy: pair![1] },
+          { order: 3, mapName: "Dust2", team1Rounds: 0, team2Rounds: 0, status: "upcoming" },
         ],
       };
     } else {
       doc = {
         ...base,
         status: "scheduled",
-        scheduledAt: isFinal ? ubTime(1, 20) : roundTo(new Date(semi1Start.getTime() + 2.5 * HOUR), 30),
+        scheduledAt:
+          p.bracket === "upper"
+            ? roundTo(new Date(liveStart.getTime() + 2.5 * HOUR), 30)
+            : ubTime(1, 15 + (p.position - 1) * 3),
         maps: [],
       };
     }
-    matchDocs.push({ ...doc, ...deriveMatchResult(doc) });
+    return { ...doc, ...deriveMatchResult(doc) };
+  });
+
+  // The finished knockout match already sent its winner into the round-robin final
+  const byId = new Map(playoffDocs.map((m) => [m._id.toHexString(), m]));
+  for (const m of playoffDocs) {
+    if (m.bracket !== "upper" || !m.winnerId) continue;
+    for (const link of [m.next, ...(m.nextExtra ?? [])]) {
+      const target = link && byId.get(link.matchId.toHexString());
+      if (target) target[link.slot === 1 ? "team1Id" : "team2Id"] = m.winnerId;
+    }
   }
+  matchDocs.push(...playoffDocs);
 
   await c.matches.insertMany(matchDocs);
   console.log(`seeded: ${teamDocs.length} teams (with logos and rosters), ${groupDocs.length} groups, ${matchDocs.length} matches`);
@@ -326,7 +394,7 @@ async function seed() {
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes("--clear")) return clear();
-  if (args.includes("--reset")) await clear();
+  if (args.includes("--reset")) await resetDemo();
   await seed();
 }
 

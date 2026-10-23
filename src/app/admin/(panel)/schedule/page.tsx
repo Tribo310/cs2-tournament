@@ -40,10 +40,13 @@ async function Content() {
       rows: matches.filter((m) => m.stage === "group" && m.groupId === g.id).map((m) => row(m, options)),
     };
   });
+  // Custom playoffs follow the admin's stage order
+  const stageIndex = (m: Match) => settings.playoffStages?.findIndex((st) => st.key === m.stageKey) ?? -1;
   const playoff = matches
     .filter((m) => m.stage === "playoff")
     .sort(
       (a, b) =>
+        stageIndex(a) - stageIndex(b) ||
         BRACKET_ORDER[a.bracket ?? "upper"] - BRACKET_ORDER[b.bracket ?? "upper"] ||
         (a.round ?? 0) - (b.round ?? 0) ||
         (a.position ?? 0) - (b.position ?? 0),

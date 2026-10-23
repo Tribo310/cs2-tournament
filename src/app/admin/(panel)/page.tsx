@@ -50,7 +50,14 @@ async function Content() {
       </div>
 
       {steps.some((s) => !s.done) && (
-        <Section title="Эхлэх алхмууд">
+        <Section
+          title="Эхлэх алхмууд"
+          actions={
+            <Link href="/admin/guide" className="text-sm text-primary underline-offset-4 hover:underline">
+              Гарын авлага
+            </Link>
+          }
+        >
           <ol className="space-y-1">
             {steps.map((s) => (
               <li key={s.label}>

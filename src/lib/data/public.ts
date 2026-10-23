@@ -1,7 +1,7 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { connection } from "next/server";
-import { computeStandings, type StandingRow } from "@/lib/tournament/standings";
+import { computeStandings, customStageStandings, roundRobinStandings, type StandingRow } from "@/lib/tournament/standings";
 import { collections } from "@/lib/db/mongo";
 import { SETTINGS_ID } from "@/lib/db/types";
 import { toGroup, toMatch, toSettings, toTeam, type Group, type Match, type Settings, type Team } from "./dto";
@@ -15,6 +15,8 @@ export interface Snapshot {
   groups: Group[];
   matches: Match[];
   standings: Record<string, StandingRow[]>; // by group id
+  finalStandings: StandingRow[]; // round-robin final (knockout_rr format), else empty
+  stageStandings: Record<string, StandingRow[]>; // custom round-robin stages, by stage key
 }
 
 /**
@@ -50,12 +52,24 @@ async function getCachedSnapshot(): Promise<Snapshot> {
     standings[g._id.toHexString()] = computeStandings(g, groupMatches, settings);
   }
 
+  const finalStandings =
+    settings.bracketType === "knockout_rr"
+      ? roundRobinStandings(
+          matchDocs.filter((m) => m.stage === "playoff" && m.bracket === "final"),
+          settings,
+        )
+      : [];
+
+  const stageStandings = customStageStandings(settings, matchDocs);
+
   return {
     settings,
     teams: teamDocs.map(toTeam),
     groups: groupDocs.map(toGroup),
     matches: matchDocs.map(toMatch).sort(compareMatches),
     standings,
+    finalStandings,
+    stageStandings,
   };
 }
 

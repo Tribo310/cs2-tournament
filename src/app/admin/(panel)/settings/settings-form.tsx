@@ -74,11 +74,19 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             <NativeSelect id="bracketType" name="bracketType" defaultValue={settings.bracketType}>
               <option value="single">Нэг хасагдалттай (single elimination)</option>
               <option value="double">Хоёр хасагдалттай (double elimination)</option>
+              <option value="knockout_rr">Шигшээ + финалын тойрог (ялагчид хоорондоо тойргоор)</option>
+              <option value="custom">Чөлөөт — шат, тоглолт бүрийг админ өөрөө бүтээнэ</option>
             </NativeSelect>
           </Field>
-          <Field label="Багийн тоо" htmlFor="bracketSize">
+          <Field
+            label="Багийн тоо"
+            htmlFor="bracketSize"
+            error={err("bracketSize")}
+            hint="Шигшээ + финалын тойрог: 4, 6, 8 баг. Бусад: 4, 8, 16 баг. Чөлөөт төрөлд хамаарахгүй."
+          >
             <NativeSelect id="bracketSize" name="bracketSize" defaultValue={String(settings.bracketSize)}>
               <option value="4">4 баг</option>
+              <option value="6">6 баг</option>
               <option value="8">8 баг</option>
               <option value="16">16 баг</option>
             </NativeSelect>

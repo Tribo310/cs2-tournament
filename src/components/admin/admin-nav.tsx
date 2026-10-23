@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpenIcon,
   CalendarClockIcon,
   CalendarDaysIcon,
   GaugeIcon,
@@ -26,6 +27,7 @@ const items: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/admin/groups", label: "Группүүд", icon: LayersIcon },
   { href: "/admin/bracket", label: "Плей-офф", icon: TrophyIcon },
   { href: "/admin/settings", label: "Тохиргоо", icon: SettingsIcon },
+  { href: "/admin/guide", label: "Гарын авлага", icon: BookOpenIcon },
 ];
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {

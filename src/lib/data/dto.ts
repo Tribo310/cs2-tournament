@@ -55,6 +55,7 @@ export interface Match {
   stage: MatchDoc["stage"];
   groupId?: string;
   bracket?: MatchDoc["bracket"];
+  stageKey?: string;
   round?: number;
   position?: number;
   label?: string;
@@ -69,7 +70,9 @@ export interface Match {
   winnerId?: string;
   winnerManual: boolean;
   next?: Link;
+  nextExtra?: Link[];
   loserNext?: Link;
+  loserNextExtra?: Link[];
   streamUrl?: string;
   notes?: string;
   updatedAt: Date;
@@ -126,6 +129,7 @@ export function toMatch(doc: MatchDoc): Match {
     stage: doc.stage,
     groupId: doc.groupId?.toHexString(),
     bracket: doc.bracket,
+    stageKey: doc.stageKey,
     round: doc.round,
     position: doc.position,
     label: doc.label,
@@ -149,7 +153,9 @@ export function toMatch(doc: MatchDoc): Match {
     winnerId: doc.winnerId?.toHexString(),
     winnerManual: doc.winnerManual,
     next: toLink(doc.next),
+    nextExtra: doc.nextExtra?.map((l) => toLink(l)!),
     loserNext: toLink(doc.loserNext),
+    loserNextExtra: doc.loserNextExtra?.map((l) => toLink(l)!),
     streamUrl: doc.streamUrl,
     notes: doc.notes,
     updatedAt: doc.updatedAt,

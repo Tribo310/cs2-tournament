@@ -5,7 +5,10 @@ import { BracketSection } from "@/components/tournament/bracket";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Match } from "@/lib/data/dto";
 import { getSnapshot, matchContext, teamLookup } from "@/lib/data/public";
+import { BRACKET_TYPE_LABELS } from "@/lib/labels";
 import { ROUND_NAMES } from "@/lib/tournament/context";
+import { CustomPlayoff } from "./custom-playoff";
+import { RoundRobinPlayoff } from "./round-robin-playoff";
 
 export const metadata: Metadata = {
   title: "Плей-оффын шат",
@@ -23,10 +26,14 @@ async function Bracket() {
       <EmptyState>
         Плей-оффын шат хараахан гараагүй байна.
         <br />
-        {double ? "Хоёр хасагдалттай" : "Нэг хасагдалттай"} · {s.settings.bracketSize} баг
+        {BRACKET_TYPE_LABELS[s.settings.bracketType]}
+        {s.settings.bracketType !== "custom" && ` · ${s.settings.bracketSize} баг`}
       </EmptyState>
     );
   }
+
+  if (s.settings.bracketType === "knockout_rr") return <RoundRobinPlayoff s={s} />;
+  if (s.settings.bracketType === "custom") return <CustomPlayoff s={s} />;
 
   const upper = playoff.filter((m) => m.bracket === "upper");
   const lower = playoff.filter((m) => m.bracket === "lower");
